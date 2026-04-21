@@ -8,6 +8,7 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { Token } from './entities/token.entity';
 import { Member } from '../members/entities/member.entity';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
@@ -16,6 +17,8 @@ import { Member } from '../members/entities/member.entity';
     TypeOrmModule.forFeature([Token, Member]),
 
     PassportModule,
+
+    EmailModule,
 
     // 非同步設定 JWT，從 .env 讀取 secret 和過期時間
     JwtModule.registerAsync({

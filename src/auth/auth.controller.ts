@@ -1,4 +1,13 @@
-import { Controller, Post, Body, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Query,
+  UseGuards,
+  Request,
+  BadRequestException,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -39,6 +48,14 @@ export class AuthController {
   @Post('refresh')
   async refresh(@Body() refreshDto: RefreshDto) {
     return this.authService.refresh(refreshDto.refresh_token);
+  }
+
+  @Get('verify')
+  async verify(@Query('token') token: string) {
+    if (!token) {
+      throw new BadRequestException('缺少驗證 token');
+    }
+    return this.authService.verify(token);
   }
 
   // TODO: 忘記密碼 — 暫不實作
