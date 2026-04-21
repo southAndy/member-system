@@ -2,7 +2,10 @@ import {
   Injectable,
   ConflictException,
   UnauthorizedException,
+  ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -12,6 +15,7 @@ import { Member } from '../members/entities/member.entity';
 import { Token } from './entities/token.entity';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AuthService {
@@ -28,6 +32,8 @@ export class AuthService {
     private jwtService: JwtService,
 
     private configService: ConfigService,
+
+    private emailService: EmailService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -43,16 +49,29 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(registerDto.password, 10);
 
     // repository.create() 只是建立 entity 實例（還沒寫入資料庫）
+    const verificationToken = randomUUID();
     const member = this.memberRepository.create({
       name: registerDto.name,
       email: registerDto.email,
       password: hashedPassword,
+      verification_token: verificationToken,
     });
 
     // repository.save() 才會真正寫入資料庫
     await this.memberRepository.save(member);
 
-    return { id: member.id, name: member.name, email: member.email };
+    // 寄送驗證信（失敗不阻擋註冊）
+    await this.emailService.sendVerificationEmail(
+      member.email,
+      verificationToken,
+    );
+
+    return {
+      id: member.id,
+      name: member.name,
+      email: member.email,
+      message: '註冊成功，請查看 Email 進行驗證',
+    };
   }
 
   async login(loginDto: LoginDto) {
@@ -70,6 +89,10 @@ export class AuthService {
     );
     if (!isPasswordValid) {
       throw new UnauthorizedException('帳號或密碼錯誤');
+    }
+
+    if (!member.is_verified) {
+      throw new ForbiddenException('請先驗證您的 Email');
     }
 
     // 更新最後登入時間
@@ -117,6 +140,31 @@ export class AuthService {
     const tokens = await this.generateTokens(member);
 
     return tokens;
+  }
+
+  async verify(token: string) {
+    const member = await this.memberRepository.findOne({
+      where: { verification_token: token },
+    });
+
+    if (!member) {
+      throw new BadRequestException('驗證連結無效或已過期');
+    }
+
+    member.is_verified = true;
+    member.verification_token = null;
+    member.last_login_at = new Date();
+    await this.memberRepository.save(member);
+
+    // 驗證成功後自動產生 token（等同自動登入）
+    const tokens = await this.generateTokens(member);
+
+    return {
+      ...tokens,
+      id: member.id,
+      name: member.name,
+      email: member.email,
+    };
   }
 
   // 產生 access token（短效）和 refresh token（長效）
